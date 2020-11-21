@@ -2,8 +2,8 @@
 
 //Alarma
 //CONSTANTES
-const int ALARM_DELAY = 10000; //10 segundos
-const int ACTIVATE_DELAY = 10000; //10 segundos
+const int ALARM_DELAY = 10000; // 10 segundos
+const int ACTIVATE_DELAY = 10000; // 10 segundos
 const int SECRET_SIZE = 4;
 const char SECRET[SECRET_SIZE] = {'1', '4', '7', '8'};
 const char RESET_SECRET_CHAR = '*';
@@ -12,6 +12,9 @@ const int PIN_SPEAKER = 10;
 const int PIN_LED = 11;
 const int PIN_SENSOR_ENTRADA = A1;
 const int PIN_SENSOR_LAVADERO = A2;
+// indica cuanto tiempo debe estar abierto un sensor para considerarlo abierto y que la alarma suene
+// esto evita falsos positivos, ya que cualquier ruido en la señal que ocasione leer un sesor abierto, dispara la alarma
+const int SENSIBILIDAD_SENSORES = 1000; // 1 segundo
 //ESTADOS
 const int ACTIVA_OK = 0;
 const int ACTIVA_SONANDO = 1;
@@ -33,7 +36,9 @@ int tipoNotificacion;
 int estadoAnterior;
 int countNotificacion;
 boolean notificado;
-unsigned long previousMillis = 0;
+unsigned long marcaMillisAlarma = 0;
+unsigned long marcaMillisSensores;
+int countVecesSensorAbierto = 0;
 //End alarma
 
 //Keypad
@@ -60,6 +65,7 @@ void setup() {
   estado = INACTIVA;
   countNotificacion = 0;
   notificado = false;
+  marcaMillisSensores = millis();
 }
 
 void loop() {
@@ -105,20 +111,20 @@ void loop() {
   }
   //Fin Chequeo codigo
 
-  //Inicio chequeo sensores
-  if (digitalRead(PIN_SENSOR_ENTRADA) == LOW && digitalRead(PIN_SENSOR_LAVADERO) == LOW){
+  //Inicio verificacion sensores
+  if (estanSensoresOk()){
     //Serial.println("Sensores bien");
     sensores_ok = true;
   } else {
     //Serial.println("Sensores mal");
     sensores_ok = false;
   }
-  //Fin chequeo sensores
+  //Fin verificacion sensores
   
   switch (estado) {
     case POR_ACTIVARSE:
       //Si paso el tiempo
-      if (millis() - previousMillis >= ACTIVATE_DELAY) {
+      if (millis() - marcaMillisAlarma >= ACTIVATE_DELAY) {
         //Y los sensores estan OK
         if (sensores_ok){
           //Activo la alarma
@@ -138,7 +144,7 @@ void loop() {
       if (!sensores_ok){
         codigo_correcto = false;
         Serial.println("Estoy por sonaaaar");
-        previousMillis = millis();
+        marcaMillisAlarma = millis();
         estado = POR_SONAR;
       }
       if (codigo_correcto){
@@ -150,7 +156,7 @@ void loop() {
     break;
     case POR_SONAR:
       //no blocking counter
-      if (millis() - previousMillis >= ALARM_DELAY) {
+      if (millis() - marcaMillisAlarma >= ALARM_DELAY) {
         estado = ACTIVA_SONANDO;
       }
       if (codigo_correcto){
@@ -178,7 +184,7 @@ void loop() {
       if (sensores_ok){
         Serial.println("Estoy por activarme");
         estado = POR_ACTIVARSE;
-        previousMillis = millis();
+        marcaMillisAlarma = millis();
         if (!notificado){
           notificar(BEEPS_1, POR_ACTIVARSE);  
         }
@@ -196,6 +202,46 @@ void loop() {
     case NOTIFICANDO:
       notificar(tipoNotificacion, estadoAnterior);
     break;
+  }
+}
+
+/***
+ * Controla si los sensores son considerados abiertos o no.
+ * Retorna true si los sensores están ok (cerrados)
+ * y false si los sensores son considerados abiertos, no ok.
+ * Tiene en cuenta un tiempo de sensibilidad. Si el sensor es detectado abierto dos o mas veces dentro
+ * de ese tiempo de sensibildiad, se retorna false. Si en cambio se detecta abierto un sensor por un período 
+ * muy pequeño (algunos ms) la funcion retorna true hasta tanto el tiempo de deteccion abierta no supere el 
+ * tiempo de sensibilidad.
+ */
+bool estanSensoresOk() {
+  // Keep in mind the pull-up means the pushbutton's logic is inverted. It goes
+  // HIGH when it's open, and LOW when it's pressed.
+  // Si cualquiera de los sensores está abierto
+  if (digitalRead(PIN_SENSOR_ENTRADA) == HIGH || digitalRead(PIN_SENSOR_LAVADERO) == HIGH) {
+    // controlo si detecté sensor abierto en más de una oportunidad
+    if (countVecesSensorAbierto > 1) {
+      // si vi mas de una vez el sesor abierto, lo considero abierto
+      Serial.println("conté mas de uno, retorno falso");
+      return false;
+    } else {
+      // con count 0 o 1 entra acá
+      // controlo si dentro del tiempo SENSIBILIDAD_SENSORES lo vuelvo a detectar abierto
+      // cuando count=0 marcaMillis será << que millis, entonces la resta dará un nro muy grande
+      // si count = 1, marcaMillis ya fue actualizado, entonces la resta dará pocos ms.
+      if (millis() - marcaMillisSensores >= SENSIBILIDAD_SENSORES) {
+        // si la resta supera el tiempo de sensibilidad
+        // cuento sensor abierto
+        countVecesSensorAbierto++;
+        // y actualizo la marca de millis
+        marcaMillisSensores = millis();
+        Serial.println("cuento sensor abierto");
+      }
+    }
+  } else {
+    // Si los sensores están bien, reinicio en contador de sensor abierto
+    countVecesSensorAbierto = 0;
+    return true;
   }
 }
 

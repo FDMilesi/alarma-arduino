@@ -8,3 +8,7 @@ Alarma simple compuesta por:
 - Alimentación 12V
 - 1 LED
 - 1 Speaker tipo beep de PC
+
+Proximamente:
+- condicionales para ejecutar codigo de debug
+- modulo GSM para notificaciones por SMS
